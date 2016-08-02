@@ -10,31 +10,58 @@ namespace ThreadBoxLib
 {
     public class ThreadBox
     {
-        static List<IThread> _threads = new List<IThread>(); 
+        private static volatile int _threadIdCounter = 0;
+        /// <summary>
+        /// 启动过的线程储存在此
+        /// </summary>
+        static List<BoxedThread> _threads = new List<BoxedThread>();
+
+        /// <summary>
+        /// 线程锁
+        /// </summary>
+        private static readonly object Locker = new object();
+
         /// <summary>
         /// Star a thread by arguments
         /// </summary>
-        /// <param name="dllFullPath"></param>
+        /// <param name="dllPath"></param>
         /// <param name="typeName"></param>
         /// <param name="arg"></param>
         /// <returns></returns>
-        public static IThread StartThread(string dllFullPath, string typeName, object arg = null)
+        public static BoxedThread StartThread(string name, string dllPath, string typeName, object arg = null, bool autoReload = false)
         {
-            var asm = Assembly.Load(File.ReadAllBytes(dllFullPath));
-            var threadType = asm.GetType(typeName);
-            IThread thread = (IThread)Activator.CreateInstance(threadType);
-            thread.DllPath = dllFullPath;
-            thread.ClassName = typeName;
-            lock (_threads)
+            lock (Locker)
             {
-                _threads.Add(thread);
+                var asm = Assembly.Load(File.ReadAllBytes(dllPath));
+                var threadType = asm.GetType(typeName);
+                BoxedThread boxedThread = (BoxedThread)Activator.CreateInstance(threadType);
+                boxedThread.Name = name;
+                boxedThread.DllPath = dllPath;
+                boxedThread.ClassName = typeName;
+                boxedThread.Id = _threadIdCounter++;
+
+                Console.WriteLine(string.Format("Start thread: `{0}`, dll: `{1}`, class: `{2}`, id: `{3}`", name, dllPath, typeName, boxedThread.Id));
+                lock (_threads)
+                {
+                    _threads.Add(boxedThread);
+                }
+                Thread thread = new Thread(boxedThread.Start);
+                boxedThread.Thread = thread;
+                thread.Start();
+
+//                DllWatcher.Get(dllPath, (sender, args) =>
+//                {
+//                    Console.WriteLine("Abort thread: " + name);
+//                    boxedThread.Stop();
+//                    StartThread(name, dllPath, typeName);
+//                });
+
+                return boxedThread;
             }
-            ThreadPool.QueueUserWorkItem(thread.Start, arg);
-            return thread;
         }
 
         /// <summary>
-        /// Remove useless, ended threads
+        /// 清理已经结束了的线程
         /// </summary>
         public static void Clean()
         {
@@ -46,7 +73,30 @@ namespace ThreadBoxLib
                     if (thread.IsEnd)
                         _threads.RemoveAt(i);
                 }
-                
+
+            }
+        }
+
+        /// <summary>
+        /// 读取Ini文件信息并单进程启动所有thread
+        /// </summary>
+        public static void StartAllWithIni(string iniFile = null)
+        {
+            if (iniFile == null)
+                iniFile = "threadbox.ini";// default ini path
+
+            var iniParser = new IniParser.FileIniDataParser();
+            var iniData = iniParser.ReadFile(iniFile);
+            foreach (var section in iniData.Sections)
+            {
+                var threadPrefxi = "thread:";
+                if (section.SectionName.StartsWith(threadPrefxi))
+                {
+                    var threadName = section.SectionName.Substring(threadPrefxi.Length, section.SectionName.Length - threadPrefxi.Length);
+                    var threadDllPath = iniData[section.SectionName]["dll_path"];
+                    var threadClass = iniData[section.SectionName]["class"];
+                    ThreadBox.StartThread(threadName, threadDllPath, threadClass);
+                }
             }
         }
     }

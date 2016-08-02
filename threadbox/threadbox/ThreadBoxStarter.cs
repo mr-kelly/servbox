@@ -18,19 +18,7 @@ namespace ThreadBoxLib
 
         static void Main(string[] args)
         {
-            var dllPath = Path.GetFullPath("DemoApp.dll");
-            ThreadBox.StartThread(dllPath, "DemoApp.App1");
-            ThreadBox.StartThread(dllPath, "DemoApp.App2");
-            ThreadPool.QueueUserWorkItem((_) =>
-            {
-                while (true)
-                {
-                    System.Threading.Thread.Sleep(5000);
-                    ThreadBox.StartThread(dllPath, "DemoApp.App1");
-                }
-            });
-
-
+            ThreadBox.StartAllWithIni();
             while (true)
             {
                 ThreadWaiter.WaitOne(Timeout.Infinite);
